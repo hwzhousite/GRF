@@ -89,6 +89,7 @@ class RandomForestTree():
         # Default values for splits
         self.best_feature = None
         self.best_value = None
+        self.linear = None
 
     def get_random_X_colsample(self):
         # Getting the random subset of features

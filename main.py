@@ -88,6 +88,7 @@ class RandomForestTree():
 
         # Default values for splits
         self.best_feature = None
+        self.best_linear = None
         self.best_value = None
         self.linear = None
 
@@ -150,7 +151,9 @@ class RandomForestTree():
         # Getting the GINI impurity
         return self.GINI_impurity(y1_count, y2_count)
 
-    def best_split(self) -> tuple:
+
+
+    def split_val(self) -> tuple:
         """
         Given the X features and Y targets calculates the best split
         for a decision tree
@@ -220,6 +223,46 @@ class RandomForestTree():
 
         return (best_feature, best_value)
 
+    def spec_split(self) -> tuple:
+        """
+        Given the X features and Y targets calculates the best split with PCA method
+        """
+        # Creating a dataset for spliting
+        df = self.X.copy()
+        #df['Y'] = self.Y
+
+
+        # Getting the GINI impurity for the base input
+        #GINI_base = self.get_GINI()
+
+        # Finding which split yields the best GINI gain
+        #max_gain = 0
+
+        # Default best feature and split
+
+        best_feature = None
+        best_value = None
+        best_linear = None
+
+        # Getting a random subsample of features
+        n_features = len(df.columns)
+        n_ft = int(self.n_features * self.X_features_fraction)
+
+        # Selecting random features without repetition
+        features_subsample = random.sample(range(len(self.features)), n_ft)
+        best_feature = features_subsample
+
+        A = df.iloc[features_subsample, features_subsample]
+        D = np.diag(A.sum(axis = 0))
+        U, V, D = np.linalg.svd(D-A)
+        best_linear = D[:,-2]
+
+        self.best_linear = best_linear
+
+        best_value = A.dot(best_linear)
+
+        return  (best_feature, best_value)
+
     def grow_tree(self):
         """
         Recursive method to create the decision tree
@@ -228,7 +271,7 @@ class RandomForestTree():
         if (self.depth < self.max_depth) and (self.n >= self.min_samples_split):
 
             # Getting the best split
-            best_feature, best_value = self.best_split()
+            best_feature, best_value = self.pca_split()
 
             if best_feature is not None:
                 # Saving the best split to the current node
@@ -236,8 +279,8 @@ class RandomForestTree():
                 self.best_value = best_value
 
                 # Getting the left and right dataframe indexes
-                left_index, right_index = self.X[self.X[best_feature] <= best_value].index, self.X[
-                    self.X[best_feature] > best_value].index
+                left_index, right_index = self.X[best_value <= 0].index, self.X[
+                    best_value > 0].index
 
                 # Extracting the left X and right X
                 left_X, right_X = self.X[self.X.index.isin(left_index)], self.X[self.X.index.isin(right_index)]
@@ -315,7 +358,7 @@ class RandomForestTree():
 
     def print_info(self, width=4):
         """
-        Method to print the infromation about the tree
+        Method to print the information about the tree
         """
         # Defining the number of spaces
         const = int(self.depth * width ** 1.5)
@@ -478,7 +521,7 @@ class RandomForestClassifier():
 
 if __name__ == '__main__':
     # Reading data for classification
-    d = pd.read_csv("data/random_forest/telecom_churn.csv")
+    d = pd.read_csv("telecom_churn.csv")
 
     # Setting the features used
     features = [
@@ -491,15 +534,20 @@ if __name__ == '__main__':
         'RoamMins'
     ]
 
+    Y = d['Churn']
+    X = d[features]
+    D = X.dot(X.T)
+
     # Initiating the random forest object
     rf = RandomForestClassifier(
-        Y=d['Churn'],
-        X=d[features],
+        Y= Y,
+        X= D,
         min_samples_split=5,
         max_depth=4,
-        n_trees=10,
+        n_trees=1,
         X_features_fraction=0.5
     )
+
 
     # Growing the random forest
     rf.grow_random_forest()
@@ -514,3 +562,5 @@ if __name__ == '__main__':
     # Measurring accuracy
     print(f"The training precision: {precision_score(d['Churn'], d['yhat'])}")
     print(f"The training recall: {recall_score(d['Churn'], d['yhat'])}")
+
+

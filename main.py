@@ -19,7 +19,6 @@ from tqdm import tqdm
 # Accuracy metrics
 from sklearn.metrics import precision_score, recall_score
 
-
 class RandomForestTree():
     """
     Class that grows one random forest tree
@@ -27,8 +26,8 @@ class RandomForestTree():
 
     def __init__(
             self,
-            Y,
             X,
+            Y=None,
             min_samples_split=None,
             max_depth=None,
             depth=None,
@@ -56,11 +55,14 @@ class RandomForestTree():
         # Rule for spliting
         self.rule = rule if rule else ""
 
+        # Supervised or Not
+        self.supervise = True if Y is not None else False
+
         # Calculating the counts of Y in the node
-        self.counts = Counter(Y)
+        self.counts = Counter(Y) if Y is not None else None
 
         # Getting the GINI impurity based on the Y distribution
-        self.gini_impurity = self.get_GINI()
+        self.gini_impurity = self.get_GINI() if Y is not None else None
 
         # Getting the number of features
         self.n_features = len(self.features)
@@ -69,18 +71,18 @@ class RandomForestTree():
         self.X_features_fraction = X_features_fraction if X_features_fraction is not None else 1.0
 
         # Sorting the counts and saving the final prediction of the node
-        counts_sorted = list(sorted(self.counts.items(), key=lambda item: item[1]))
+        counts_sorted = list(sorted(self.counts.items(), key=lambda item: item[1])) if Y is not None else None
 
         # Getting the last item
         yhat = None
-        if len(counts_sorted) > 0:
+        if len(counts_sorted) > 0 and Y is not None:
             yhat = counts_sorted[-1][0]
 
         # Saving to object attribute. This node will predict the class with the most frequent class
         self.yhat = yhat
 
         # Saving the number of observations in the node
-        self.n = len(Y)
+        self.n = X.shape[0]
 
         # Initiating the left and right nodes as empty nodes
         self.left = None
@@ -90,7 +92,6 @@ class RandomForestTree():
         self.best_feature = None
         self.best_linear = None
         self.best_value = None
-        self.linear = None
 
     def get_random_X_colsample(self):
         # Getting the random subset of features
@@ -152,15 +153,13 @@ class RandomForestTree():
         return self.GINI_impurity(y1_count, y2_count)
 
 
-
-    def split_val(self) -> tuple:
+    def split_val(self, vec) -> tuple:
         """
         Given the X features and Y targets calculates the best split
         for a decision tree
         """
         # Creating a dataset for spliting
-        df = self.X.copy()
-        df['Y'] = self.Y
+        vec["Y"] =  self.Y
 
         # Getting the GINI impurity for the base input
         GINI_base = self.get_GINI()
@@ -169,31 +168,24 @@ class RandomForestTree():
         max_gain = 0
 
         # Default best feature and split
-        best_feature = None
         best_value = None
 
-        # Getting a random subsample of features
-        n_ft = int(self.n_features * self.X_features_fraction)
+        # Droping missing values
+        # Sorting the values and getting the rolling average
+        Xdf = vec.dropna().sort_values(0)
+        xmeans = self.ma(Xdf[0].unique(), 2)
 
-        # Selecting random features without repetition
-        features_subsample = random.sample(self.features, n_ft)
+        if self.supervise:
 
-        for feature in features_subsample:
-            # Droping missing values
-            Xdf = df.dropna().sort_values(feature)
-
-            # Sorting the values and getting the rolling average
-            xmeans = self.ma(Xdf[feature].unique(), 2)
 
             for value in xmeans:
                 # Spliting the dataset
-                left_counts = Counter(Xdf[Xdf[feature] < value]['Y'])
-                right_counts = Counter(Xdf[Xdf[feature] >= value]['Y'])
+                left_counts = Counter(vec[vec[0] < value]['Y']) #
+                right_counts = Counter(vec[vec[0] >= value]['Y']) #
 
                 # Getting the Y distribution from the dicts
-                y0_left, y1_left, y0_right, y1_right = left_counts.get(0, 0), left_counts.get(1, 0), right_counts.get(0,
-                                                                                                                      0), right_counts.get(
-                    1, 0)
+                y0_left, y1_left, y0_right, y1_right = left_counts.get(0, 0), left_counts.get(1, 0), \
+                                                       right_counts.get(0,0), right_counts.get( 1, 0)
 
                 # Getting the left and right gini impurities
                 gini_left = self.GINI_impurity(y0_left, y1_left)
@@ -215,28 +207,20 @@ class RandomForestTree():
 
                 # Checking if this is the best split so far
                 if GINIgain > max_gain:
-                    best_feature = feature
                     best_value = value
 
                     # Setting the best gain to the current one
                     max_gain = GINIgain
 
-        return (best_feature, best_value)
+
+        return (best_value)
 
     def spec_split(self) -> tuple:
         """
-        Given the X features and Y targets calculates the best split with PCA method
+        Given the X features and Y targets calculates the best split with Spectral Method and
         """
         # Creating a dataset for spliting
         df = self.X.copy()
-        #df['Y'] = self.Y
-
-
-        # Getting the GINI impurity for the base input
-        #GINI_base = self.get_GINI()
-
-        # Finding which split yields the best GINI gain
-        #max_gain = 0
 
         # Default best feature and split
 
@@ -249,17 +233,21 @@ class RandomForestTree():
         n_ft = int(self.n_features * self.X_features_fraction)
 
         # Selecting random features without repetition
-        features_subsample = random.sample(range(len(self.features)), n_ft)
+        features_subsample = random.sample(self.features, n_ft)
         best_feature = features_subsample
 
-        A = df.iloc[features_subsample, features_subsample]
-        D = np.diag(A.sum(axis = 0))
-        U, V, D = np.linalg.svd(D-A)
-        best_linear = D[:,-2]
+        if best_feature is not None:
+            A = df.loc[best_feature, best_feature]
+            #print(self.depth, " : ", A.shape[0])
+            D = np.diag(A.sum(axis = 0))
+            U, V, D = np.linalg.svd(D-A)
+            best_linear = D[:,-2]
 
-        self.best_linear = best_linear
+            self.best_linear = best_linear
 
-        best_value = A.dot(best_linear)
+            best_vec = df.loc[:, best_feature].dot(best_linear.reshape(-1,1))
+
+            best_value = self.split_val(best_vec)
 
         return  (best_feature, best_value)
 
@@ -271,49 +259,51 @@ class RandomForestTree():
         if (self.depth < self.max_depth) and (self.n >= self.min_samples_split):
 
             # Getting the best split
-            best_feature, best_value = self.pca_split()
+            best_feature, best_value = self.spec_split()
 
             if best_feature is not None:
                 # Saving the best split to the current node
                 self.best_feature = best_feature
                 self.best_value = best_value
+                vec = self.X.loc[:,best_feature].dot(self.best_linear.reshape(-1,1))[0]
 
                 # Getting the left and right dataframe indexes
-                left_index, right_index = self.X[best_value <= 0].index, self.X[
-                    best_value > 0].index
+                #left_index, right_index = tree.X.loc[vec <= best_value, vec <= best_value].index,\
+                #                          tree.X.loc[vec > best_value, vec > best_value].index
 
                 # Extracting the left X and right X
-                left_X, right_X = self.X[self.X.index.isin(left_index)], self.X[self.X.index.isin(right_index)]
+                left_X, right_X = self.X.loc[vec <= best_value, vec <= best_value], \
+                                  self.X.loc[vec > best_value, vec > best_value]
 
                 # Reseting the indexes
-                left_X.reset_index(inplace=True, drop=True)
-                right_X.reset_index(inplace=True, drop=True)
+                # left_X.reset_index(inplace=True, drop=True)
+                # right_X.reset_index(inplace=True, drop=True)
 
                 # Extracting the left Y and the right Y
-                left_Y, right_Y = [self.Y[x] for x in left_index], [self.Y[x] for x in right_index]
+                left_Y, right_Y = self.Y.loc[vec <= best_value, ], self.Y.loc[vec > best_value, ]
 
                 # Creating the left and right nodes
                 left = RandomForestTree(
-                    left_Y,
                     left_X,
+                    left_Y,
                     depth=self.depth + 1,
                     max_depth=self.max_depth,
                     min_samples_split=self.min_samples_split,
                     node_type='left_node',
-                    rule=f"{best_feature} <= {round(best_value, 3)}"
+                    rule= None#f"{best_feature} <= {round(best_value, 3)}"
                 )
 
                 self.left = left
                 self.left.grow_tree()
 
                 right = RandomForestTree(
-                    right_Y,
                     right_X,
+                    right_Y,
                     depth=self.depth + 1,
                     max_depth=self.max_depth,
                     min_samples_split=self.min_samples_split,
                     node_type='right_node',
-                    rule=f"{best_feature} > {round(best_value, 3)}"
+                    rule= None#f"{best_feature} > {round(best_value, 3)}"
                 )
 
                 self.right = right
@@ -326,10 +316,12 @@ class RandomForestTree():
         predictions = []
 
         for _, x in X.iterrows():
-            values = {}
-            for feature in self.features:
-                values.update({feature: x[feature]})
 
+            #values = {}
+            #for feature in self.features:
+            #    values.update({feature: x[feature]})
+
+            values = x[self.features]
             predictions.append(self.predict_obs(values))
 
         return predictions
@@ -343,15 +335,17 @@ class RandomForestTree():
             # Traversing the nodes all the way to the bottom
             best_feature = cur_node.best_feature
             best_value = cur_node.best_value
+            best_linear = cur_node.best_linear
+            value = values[best_feature].dot(best_linear)
 
             if (cur_node.n < cur_node.min_samples_split) | (best_feature is None):
                 break
 
-            if (values.get(best_feature) < best_value):
-                if self.left is not None:
+            if (value < best_value):
+                if cur_node.left is not None:
                     cur_node = cur_node.left
             else:
-                if self.right is not None:
+                if cur_node.right is not None:
                     cur_node = cur_node.right
 
         return cur_node.yhat
@@ -384,7 +378,6 @@ class RandomForestTree():
         if self.right is not None:
             self.right.print_tree()
 
-
 class RandomForestClassifier():
     """
     Class that creates a random forest for classification problems
@@ -392,8 +385,8 @@ class RandomForestClassifier():
 
     def __init__(
             self,
-            Y: list,
-            X: pd.DataFrame,
+            X,
+            Y = None,
             min_samples_split=None,
             max_depth=None,
             n_trees=None,
@@ -424,17 +417,20 @@ class RandomForestClassifier():
         Function that creates a bootstraped sample with the class instance parameters
         """
         # Sampling the number of rows with repetition
+
         Xbootstrap = self.X.sample(frac=self.X_obs_fraction, replace=True)
 
         # Getting the index of samples
         indexes = Xbootstrap.index
 
-        # Getting the corresponding Y variables
-        Ybootstrap = [self.Y[x] for x in indexes]
+
+        # Getting the corresponding X,Y variables
+        Xbootstrap = self.X.loc[indexes, indexes]
+        Ybootstrap = self.Y.loc[indexes]
 
         # Droping the index of X
         Xbootstrap.reset_index(inplace=True, drop=True)
-
+        Ybootstrap.reset_index(inplace=True, drop=True)
         # Returning the X, Y pair
         return Xbootstrap, Ybootstrap
 
@@ -452,8 +448,8 @@ class RandomForestClassifier():
 
             # Initiating the random tree
             tree = RandomForestTree(
-                Y=Y,
-                X=X,
+                X=self.X,
+                Y=self.Y,
                 min_samples_split=self.min_samples_split,
                 max_depth=self.max_depth,
                 X_features_fraction=self.X_features_fraction
@@ -540,8 +536,8 @@ if __name__ == '__main__':
 
     # Initiating the random forest object
     rf = RandomForestClassifier(
+        X=D,
         Y= Y,
-        X= D,
         min_samples_split=5,
         max_depth=4,
         n_trees=1,
@@ -556,7 +552,7 @@ if __name__ == '__main__':
     rf.print_trees()
 
     # Making predictions
-    yhat = rf.predict(d[features])
+    yhat = rf.predict(D.iloc[range(5),:])
     d['yhat'] = yhat
 
     # Measurring accuracy

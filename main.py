@@ -33,7 +33,8 @@ class RandomForestTree():
             depth=None,
             X_features_fraction=None,
             node_type=None,
-            rule=None
+            rule=None,
+            father = None
     ):
         # Saving the data for the random forest
         self.Y = Y
@@ -87,7 +88,7 @@ class RandomForestTree():
         # Initiating the left and right nodes as empty nodes
         self.left = None
         self.right = None
-
+        self.father = father
         # Default values for splits
         self.best_feature = None
         self.best_linear = None
@@ -251,6 +252,8 @@ class RandomForestTree():
 
         return  (best_feature, best_value)
 
+
+
     def grow_tree(self):
         """
         Recursive method to create the decision tree
@@ -260,6 +263,7 @@ class RandomForestTree():
 
             # Getting the best split
             best_feature, best_value = self.spec_split()
+
 
             if best_feature is not None:
                 # Saving the best split to the current node
@@ -290,7 +294,8 @@ class RandomForestTree():
                     max_depth=self.max_depth,
                     min_samples_split=self.min_samples_split,
                     node_type='left_node',
-                    rule= None#f"{best_feature} <= {round(best_value, 3)}"
+                    rule=None,#f"{best_feature} <= {round(best_value, 3)}",
+                    father=self
                 )
 
                 self.left = left
@@ -303,7 +308,8 @@ class RandomForestTree():
                     max_depth=self.max_depth,
                     min_samples_split=self.min_samples_split,
                     node_type='right_node',
-                    rule= None#f"{best_feature} > {round(best_value, 3)}"
+                    rule=None,#f"{best_feature} > {round(best_value, 3)}",
+                    father=self
                 )
 
                 self.right = right
@@ -321,7 +327,7 @@ class RandomForestTree():
             #for feature in self.features:
             #    values.update({feature: x[feature]})
 
-            values = x[self.features]
+            values = x.loc[self.features]
             predictions.append(self.predict_obs(values))
 
         return predictions
@@ -333,13 +339,14 @@ class RandomForestTree():
         cur_node = self
         while cur_node.depth < cur_node.max_depth:
             # Traversing the nodes all the way to the bottom
+
+            if (cur_node.n < cur_node.min_samples_split) | (cur_node.best_value is None):
+                break
+
             best_feature = cur_node.best_feature
             best_value = cur_node.best_value
             best_linear = cur_node.best_linear
-            value = values[best_feature].dot(best_linear)
-
-            if (cur_node.n < cur_node.min_samples_split) | (best_feature is None):
-                break
+            value = values.loc[best_feature].dot(best_linear)
 
             if (value < best_value):
                 if cur_node.left is not None:
@@ -531,19 +538,18 @@ if __name__ == '__main__':
     ]
 
     Y = d['Churn']
-    X = d[features]
-    D = X.dot(X.T)
+    a = d[features]
+    D = a.dot(a.T)
 
     # Initiating the random forest object
     rf = RandomForestClassifier(
         X=D,
         Y= Y,
-        min_samples_split=5,
-        max_depth=4,
+        min_samples_split=10,
+        max_depth=100,
         n_trees=1,
-        X_features_fraction=0.5
+        X_features_fraction=0.8
     )
-
 
     # Growing the random forest
     rf.grow_random_forest()
@@ -552,11 +558,10 @@ if __name__ == '__main__':
     rf.print_trees()
 
     # Making predictions
-    yhat = rf.predict(D.iloc[range(5),:])
-    d['yhat'] = yhat
+    yhat = rf.predict(D)
 
     # Measurring accuracy
-    print(f"The training precision: {precision_score(d['Churn'], d['yhat'])}")
-    print(f"The training recall: {recall_score(d['Churn'], d['yhat'])}")
+    np.mean(yhat == Y)
+
 
 

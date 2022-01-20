@@ -357,6 +357,47 @@ class RandomForestTree():
 
         return cur_node.yhat
 
+    def affinity(self, X: pd.DataFrame):
+
+        predictions = []
+
+        for _, x in X.iterrows():
+
+            #values = {}
+            #for feature in self.features:
+            #    values.update({feature: x[feature]})
+
+            values = x.loc[self.features]
+            predictions.append(self.predict_obs(values))
+
+        return predictions
+
+
+    def affinity_obs(self, values: dict) -> int:
+
+        cur_node = self
+        while cur_node.depth < cur_node.max_depth:
+            # Traversing the nodes all the way to the bottom
+
+            if (cur_node.n < cur_node.min_samples_split) | (cur_node.best_value is None):
+                break
+
+            best_feature = cur_node.best_feature
+            best_value = cur_node.best_value
+            best_linear = cur_node.best_linear
+            value = values.loc[best_feature].dot(best_linear)
+
+            if (value < best_value):
+                if cur_node.left is not None:
+                    cur_node = cur_node.left
+            else:
+                if cur_node.right is not None:
+                    cur_node = cur_node.right
+
+        return cur_node.yhat
+
+
+
     def print_info(self, width=4):
         """
         Method to print the information about the tree
@@ -520,6 +561,12 @@ class RandomForestClassifier():
 
         # Returning the final predictions
         return yhat_final
+
+    def kernel(self, X: pd.DataFrame) -> list:
+        """
+         Method to generate Random Forest Kernel
+        """
+        kmat = self.tree_prediction(X)
 
 
 if __name__ == '__main__':
